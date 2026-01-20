@@ -57,6 +57,8 @@
             text-transform: uppercase;
             text-shadow: 0 0 8px #0ff;
             box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            height: 40px; /* Fixed height for calculations */
+            box-sizing: content-box;
         }
 
         .bottom-bar {
@@ -211,7 +213,7 @@
             // -- DIFFICULTY --
             // Speed: Lower number = Faster Enemy. (60 = 1 move per second)
             // UPDATED: Slower speeds for 4th graders
-            ENEMY_SPEED_EASY: 120,   // Levels 1-3
+            ENEMY_SPEED_EASY: 200,   // Levels 1-3
             ENEMY_SPEED_MED: 100,    // Levels 4-6
             ENEMY_SPEED_HARD: 80,    // Levels 7+
             
@@ -266,10 +268,15 @@
         const CANVAS_HEIGHT = 600;
         const GRID_COLS = 6;
         const GRID_ROWS = 5;
-        const TOP_OFFSET = 80; // Space for HUD
+        
+        // --- LAYOUT ADJUSTMENTS ---
+        // Adjusted to prevent UI overlap
+        const TOP_OFFSET = 80;    // Top HUD space
+        const BOTTOM_OFFSET = 60; // Bottom HUD space
         
         const CELL_W = CANVAS_WIDTH / GRID_COLS;
-        const CELL_H = (CANVAS_HEIGHT - TOP_OFFSET) / GRID_ROWS;
+        // Calculate height based on remaining space
+        const CELL_H = (CANVAS_HEIGHT - TOP_OFFSET - BOTTOM_OFFSET) / GRID_ROWS;
 
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -289,11 +296,12 @@
             targetFraction: {n:1, d:2},
             mode: 'equal', // 'equal', 'greater', 'lesser'
             
-            state: 'menu', // menu, playing, dying, gameover
+            state: 'menu', // menu, level_transition, playing, dying, gameover
             
             grid: [],
             enemies: [],
             particles: [],
+            spawnTimer: null, // Track enemy spawn timer
             
             player: {
                 gx: 0, gy: 0, x: 0, y: 0,
@@ -345,28 +353,30 @@
             },
 
             setupLevel: function() {
-                this.state = 'playing';
+                // Freeze game state during transition
+                this.state = 'level_transition';
+                
+                // Reset player visual state
                 this.player.gx = 0;
                 this.player.gy = 0;
                 this.player.angle = 0;
                 this.player.scale = 1;
+                this.player.x = this.player.gx * CELL_W + (CELL_W/2);
+                this.player.y = this.player.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
                 
                 this.hints = TEACHER_SETTINGS.STARTING_HINTS;
                 this.enemies = [];
                 this.particles = [];
                 
-                // --- DETERMINE LEVEL RULES ---
-                // Level 1-3: Equivalent Fractions
-                // Level 4-6: Compare (> or <)
-                // Level 7+: Harder comparisons/Equivalents mixed
+                // Clear any pending enemy spawns from previous levels
+                if(this.spawnTimer) clearTimeout(this.spawnTimer);
                 
+                // --- DETERMINE LEVEL RULES ---
                 const maxDenom = this.level < 4 ? TEACHER_SETTINGS.MAX_DENOM_EASY : TEACHER_SETTINGS.MAX_DENOM_HARD;
                 
-                // Pick a nice base target (1/2, 1/3, 2/3, 3/4 etc)
                 const simpleBases = [{n:1,d:2}, {n:1,d:3}, {n:2,d:3}, {n:1,d:4}, {n:3,d:4}, {n:1,d:5}];
                 let base = simpleBases[Math.floor(Math.random() * simpleBases.length)];
                 
-                // If higher level, maybe pick a weirder target
                 if(this.level > 5 && Math.random() > 0.5) {
                     base = MathUtils.randomFraction(8);
                 }
@@ -417,12 +427,13 @@
             startLevel: function() {
                 document.getElementById('level-screen').classList.add('hidden');
                 
-                // Setup Player Pos
-                this.player.x = this.player.gx * CELL_W + (CELL_W/2);
-                this.player.y = this.player.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
+                // Unfreeze game state
+                this.state = 'playing';
                 
                 requestAnimationFrame(gameLoop);
-                setTimeout(() => this.spawnEnemy(), 2000); 
+                
+                // Initial enemy spawn delay
+                this.spawnTimer = setTimeout(() => this.spawnEnemy(), 2000); 
             },
 
             generateGrid: function(maxDenom) {
@@ -432,46 +443,35 @@
                 for (let r = 0; r < GRID_ROWS; r++) {
                     for (let c = 0; c < GRID_COLS; c++) {
                         let f, isValid;
-                        const wantCorrect = Math.random() < 0.35; // 35% chance for correct answer
+                        const wantCorrect = Math.random() < 0.35; 
 
-                        // Generate a candidate
-                        // We use a safety counter to prevent infinite loops if logic is tight
                         let safety = 0;
                         do {
                             if (wantCorrect) {
-                                // GENERATE CORRECT ANSWER
                                 if (this.mode === 'equal') {
                                     const mult = Math.floor(Math.random() * 5) + 1;
                                     f = { n: this.targetFraction.n * mult, d: this.targetFraction.d * mult };
                                 } else if (this.mode === 'greater') {
-                                    // Generate until greater
                                     f = MathUtils.randomFraction(maxDenom);
                                     if (!MathUtils.isGreater(f, this.targetFraction)) f = null; 
-                                } else { // lesser
+                                } else { 
                                     f = MathUtils.randomFraction(maxDenom);
                                     if (!MathUtils.isLesser(f, this.targetFraction)) f = null;
                                 }
                             } else {
-                                // GENERATE WRONG ANSWER
                                 f = MathUtils.randomFraction(maxDenom);
-                                
-                                // Verify it is actually wrong - FIX: ADDED NULL CHECK HERE
                                 if (f) {
                                     if (this.mode === 'equal' && MathUtils.areEqual(f, this.targetFraction)) f = null;
                                     else if (this.mode === 'greater' && MathUtils.isGreater(f, this.targetFraction)) f = null;
                                     else if (this.mode === 'lesser' && MathUtils.isLesser(f, this.targetFraction)) f = null;
                                 }
-                                
-                                // Avoid exact duplicates of target in comparison modes to prevent confusion - FIX: ADDED NULL CHECK HERE
                                 if (f && MathUtils.areEqual(f, this.targetFraction)) f = null;
                             }
                             safety++;
                         } while (!f && safety < 50);
 
-                        // Fallback if random gen failed
                         if (!f) f = { n:1, d:1 }; 
 
-                        // Determine validity based on final fraction
                         if (this.mode === 'equal') isValid = MathUtils.areEqual(f, this.targetFraction);
                         else if (this.mode === 'greater') isValid = MathUtils.isGreater(f, this.targetFraction);
                         else isValid = MathUtils.isLesser(f, this.targetFraction);
@@ -489,12 +489,15 @@
                     }
                 }
                 
-                // Ensure minimum correct answers exist
                 if(validCount < TEACHER_SETTINGS.MIN_CORRECT_ANSWERS) this.generateGrid(maxDenom);
             },
 
             spawnEnemy: function() {
-                if(this.state !== 'playing') return;
+                // Only spawn if game is actually playing
+                if(this.state !== 'playing' && this.state !== 'level_transition') return;
+                
+                // Double check to not spawn if in transition, though timer should have cleared
+                if(this.state === 'level_transition') return;
 
                 // Difficulty Scaling
                 let maxEnemies = 1;
@@ -510,7 +513,6 @@
                 }
                 
                 if(this.enemies.length < maxEnemies) {
-                    // Spawn at edges
                     let gx, gy;
                     if(Math.random() > 0.5) {
                         gx = Math.random() > 0.5 ? -1 : GRID_COLS;
@@ -520,7 +522,6 @@
                         gy = Math.random() > 0.5 ? -1 : GRID_ROWS;
                     }
 
-                    // 0 = Wanderer (Red), 1 = Hunter (Purple)
                     let type = 0; 
                     if(this.level >= 4 && Math.random() > 0.4) type = 1;
 
@@ -535,7 +536,7 @@
                 }
 
                 let nextTime = 2000 + Math.random() * 4000;
-                setTimeout(() => this.spawnEnemy(), nextTime);
+                this.spawnTimer = setTimeout(() => this.spawnEnemy(), nextTime);
             },
 
             updateHUD: function() {
@@ -550,7 +551,6 @@
                 
                 document.getElementById('rule-el').innerText = ruleText;
                 
-                // Lives
                 const livesContainer = document.getElementById('lives-el');
                 livesContainer.innerHTML = '';
                 for(let i=0; i<this.lives; i++) {
@@ -559,7 +559,6 @@
                     livesContainer.appendChild(d);
                 }
 
-                // Hints
                 const hintsContainer = document.getElementById('hints-el');
                 hintsContainer.innerHTML = '';
                 for(let i=0; i<this.hints; i++) {
@@ -591,7 +590,6 @@
                     }
                     document.getElementById('game-over-screen').classList.remove('hidden');
                 } else {
-                    // Respawn
                     this.state = 'playing';
                     this.player.gx = 0;
                     this.player.gy = 0;
@@ -609,6 +607,8 @@
                     this.level++;
                     this.score += TEACHER_SETTINGS.POINTS_LEVEL_CLEAR;
                     this.saveProgress();
+                    
+                    // Delay before showing next level screen
                     setTimeout(() => {
                         this.setupLevel();
                     }, 500);
@@ -623,9 +623,8 @@
                     this.hints--; 
                     this.updateHUD();
                     
-                    // Highlight random target
                     const t = targets[Math.floor(Math.random() * targets.length)];
-                    t.highlightTimer = 120; // 2 seconds highlight
+                    t.highlightTimer = 120; 
                 }
             }
         };
@@ -635,7 +634,6 @@
             if (Game.state !== 'playing') return;
             const p = Game.player;
             
-            // Prevent scrolling with arrows
             if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].indexOf(e.code) > -1) {
                 e.preventDefault();
             }
@@ -703,12 +701,16 @@
             ctx.lineWidth = 2;
             ctx.beginPath();
             for(let x=0; x<=GRID_COLS; x++) {
-                ctx.moveTo(x*CELL_W, TOP_OFFSET); ctx.lineTo(x*CELL_W, CANVAS_HEIGHT);
+                ctx.moveTo(x*CELL_W, TOP_OFFSET); ctx.lineTo(x*CELL_W, CANVAS_HEIGHT - BOTTOM_OFFSET);
             }
             for(let y=0; y<=GRID_ROWS; y++) {
                 const Y = y*CELL_H + TOP_OFFSET;
                 ctx.moveTo(0, Y); ctx.lineTo(CANVAS_WIDTH, Y);
             }
+            // Draw bottom border of grid
+            const bottomY = GRID_ROWS * CELL_H + TOP_OFFSET;
+            ctx.moveTo(0, bottomY); ctx.lineTo(CANVAS_WIDTH, bottomY);
+            
             ctx.stroke();
 
             // Draw Fractions
@@ -736,6 +738,7 @@
 
             if (Game.state === 'playing') updatePlayingState();
             else if (Game.state === 'dying') updateDyingState();
+            else if (Game.state === 'level_transition') drawTransitionState();
 
             // Enemies
             Game.enemies.forEach(en => {
@@ -780,6 +783,12 @@
             ctx.moveTo(x - 15, y);
             ctx.lineTo(x + 15, y);
             ctx.stroke();
+        }
+
+        // Just draws the player in static position
+        function drawTransitionState() {
+            const p = Game.player;
+            drawMuncher(ctx, p.x, p.y, p.dir, false, 0, 1);
         }
 
         function updatePlayingState() {
