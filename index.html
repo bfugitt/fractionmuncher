@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fraction Munchers: Math Arcade</title>
+    <style>
+        /* --- ARCADE STYLING --- */
+        body {
+            background-color: #1a1a1a;
+            color: #eee;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #game-wrapper {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.1);
+            border: 6px solid #555;
+            border-radius: 12px;
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+            background-color: #000;
+            border-radius: 4px;
+        }
+
+        /* UI OVERLAY (Heads Up Display) */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud-bar {
+            background: rgba(0, 10, 20, 0.9);
+            color: #0ff;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 20px;
+            font-weight: bold;
+            border-bottom: 2px solid #0ff;
+            text-transform: uppercase;
+            text-shadow: 0 0 8px #0ff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        .bottom-bar {
+            border-top: 2px solid #0ff;
+            border-bottom: none;
+            font-size: 14px;
+            justify-content: center;
+            background: rgba(0, 10, 20, 0.95);
+        }
+
+        /* SCREENS & MENUS */
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.92);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            z-index: 20;
+            transition: opacity 0.3s;
+        }
+
+        .hidden { opacity: 0; pointer-events: none; }
+
+        h1 { 
+            font-size: 52px; 
+            color: #0ff; 
+            text-shadow: 4px 4px 0 #004444; 
+            margin: 0 0 20px 0; 
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        
+        h2 { font-size: 32px; color: #fff; margin-bottom: 10px; text-shadow: 0 0 10px #fff; }
+        p { color: #bbb; font-size: 18px; max-width: 600px; text-align: center; margin-bottom: 30px; line-height: 1.5; }
+
+        .btn-group { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+
+        button {
+            background: #000;
+            color: #0ff;
+            border: 2px solid #0ff;
+            padding: 15px 30px;
+            font-family: inherit;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            min-width: 150px;
+        }
+        
+        button:hover { 
+            background: #0ff; 
+            color: #000; 
+            box-shadow: 0 0 20px #0ff; 
+            transform: scale(1.05);
+        }
+
+        button.danger {
+            border-color: #f44;
+            color: #f44;
+            font-size: 14px;
+            padding: 10px 15px;
+            margin-top: 20px;
+        }
+        button.danger:hover { background: #f44; color: #000; box-shadow: 0 0 15px #f00; }
+
+        /* STATUS ICONS */
+        .status-container { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+        .icon-row { display: flex; gap: 4px; align-items: center; }
+        .life-icon { width: 18px; height: 18px; background: #0f0; border-radius: 50%; box-shadow: 0 0 5px #0f0; }
+        .hint-icon { width: 18px; height: 18px; background: #fa0; border-radius: 2px; box-shadow: 0 0 5px #fa0; transform: rotate(45deg); }
+        
+        .badge-area { margin-top: 20px; display: flex; gap: 10px; }
+        .badge { font-size: 24px; filter: drop-shadow(0 0 5px gold); }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <div id="ui-layer">
+            <div class="hud-bar">
+                <div>
+                    <span id="score-el">SCORE: 0</span>
+                    <div style="font-size: 14px; color: #888; margin-top: 4px;">HIGH: <span id="high-score-el">0</span></div>
+                </div>
+                <div style="text-align: center;">
+                    <div id="level-display" style="font-size: 14px; color:#aaa;">LEVEL 1</div>
+                    <span id="rule-el">LOADING...</span>
+                </div>
+                <div class="status-container">
+                    <div class="icon-row" id="lives-el" title="Lives"></div>
+                    <div class="icon-row" id="hints-el" title="Hints (Diamond)"></div>
+                </div>
+            </div>
+            <div class="hud-bar bottom-bar">
+                ARROWS to Move &nbsp;&bullet;&nbsp; SPACE to Munch &nbsp;&bullet;&nbsp; 'H' for Hint
+            </div>
+        </div>
+
+        <!-- MAIN MENU -->
+        <div id="menu-screen" class="overlay">
+            <h1>FRACTION MUNCHERS</h1>
+            <p>Munch the correct fractions! Avoid the Troggles!<br>Use Arrow Keys to move, Spacebar to eat.</p>
+            
+            <div class="btn-group">
+                <button onclick="Game.init()">PLAY GAME</button>
+            </div>
+
+            <div class="badge-area" id="badges-el">
+                <!-- Badges injected here -->
+            </div>
+
+            <button class="danger" onclick="Game.resetProgress()">Reset Progress</button>
+        </div>
+
+        <!-- LEVEL TRANSITION -->
+        <div id="level-screen" class="overlay hidden">
+            <h2 id="level-title">LEVEL 1</h2>
+            <div style="font-size: 60px; color: #0f0; margin: 20px;" id="level-target-display">1/2</div>
+            <p id="level-rule-desc">Find fractions equal to...</p>
+            <button onclick="Game.startLevel()">START</button>
+        </div>
+
+        <!-- GAME OVER -->
+        <div id="game-over-screen" class="overlay hidden">
+            <h1 style="color: #f44;">GAME OVER</h1>
+            <p>Final Score: <span id="final-score" style="color: #fff; font-weight: bold;">0</span></p>
+            <p id="new-record-msg" style="color: gold; display: none;">NEW HIGH SCORE!</p>
+            <button onclick="location.reload()">MAIN MENU</button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * FRACTION MUNCHERS
+         * -----------------
+         * TEACHER SETTINGS
+         * Adjust these values to change difficulty and game mechanics.
+         */
+        const TEACHER_SETTINGS = {
+            // -- LIVES & HELP --
+            STARTING_LIVES: 3,
+            STARTING_HINTS: 3, 
+            
+            // -- DIFFICULTY --
+            // Speed: Lower number = Faster Enemy. (60 = 1 move per second)
+            // UPDATED: Slower speeds for 4th graders
+            ENEMY_SPEED_EASY: 120,   // Levels 1-3
+            ENEMY_SPEED_MED: 100,    // Levels 4-6
+            ENEMY_SPEED_HARD: 80,    // Levels 7+
+            
+            // How many fractions must be cleared to pass?
+            MIN_CORRECT_ANSWERS: 5, 
+            
+            // Fraction Complexity: Max denominator for generated numbers
+            MAX_DENOM_EASY: 6,   // e.g., 1/2, 2/3, 5/6
+            MAX_DENOM_HARD: 12,  // e.g., 7/12, 3/10
+            
+            // -- SCORING --
+            POINTS_CORRECT: 50,
+            POINTS_LEVEL_CLEAR: 500
+        };
+
+
+        /* --- MATH ENGINE --- */
+        const MathUtils = {
+            // Greatest Common Divisor
+            gcd: (a, b) => b === 0 ? a : MathUtils.gcd(b, a % b),
+
+            // Simplify a fraction object {n, d}
+            simplify: (f) => {
+                const divisor = MathUtils.gcd(f.n, f.d);
+                return { n: f.n / divisor, d: f.d / divisor };
+            },
+
+            // Check if two fractions are effectively equal
+            areEqual: (f1, f2) => (f1.n * f2.d) === (f2.n * f1.d),
+
+            // Check if f1 > f2
+            isGreater: (f1, f2) => (f1.n * f2.d) > (f2.n * f1.d),
+
+            // Check if f1 < f2
+            isLesser: (f1, f2) => (f1.n * f2.d) < (f2.n * f1.d),
+
+            // Generate a random fraction within max denominator
+            randomFraction: (maxDenom) => {
+                const d = Math.floor(Math.random() * (maxDenom - 1)) + 2; // 2 to max
+                const n = Math.floor(Math.random() * (d * 1.5)) + 1;      // Allow some improper fractions (up to 1.5x)
+                return { n, d };
+            },
+
+            // Convert fraction to string for unique keys
+            toString: (f) => `${f.n}/${f.d}`
+        };
+
+
+        /* --- GAME ENGINE --- */
+
+        const CANVAS_WIDTH = 800;
+        const CANVAS_HEIGHT = 600;
+        const GRID_COLS = 6;
+        const GRID_ROWS = 5;
+        const TOP_OFFSET = 80; // Space for HUD
+        
+        const CELL_W = CANVAS_WIDTH / GRID_COLS;
+        const CELL_H = (CANVAS_HEIGHT - TOP_OFFSET) / GRID_ROWS;
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Local Storage Keys
+        const STORAGE_KEY_SCORE = 'munchers_highscore';
+        const STORAGE_KEY_LEVEL = 'munchers_maxlevel';
+
+        const Game = {
+            level: 1,
+            score: 0,
+            highScore: 0,
+            lives: 3,
+            hints: 3,
+            
+            // Current Level Data
+            targetFraction: {n:1, d:2},
+            mode: 'equal', // 'equal', 'greater', 'lesser'
+            
+            state: 'menu', // menu, playing, dying, gameover
+            
+            grid: [],
+            enemies: [],
+            particles: [],
+            
+            player: {
+                gx: 0, gy: 0, x: 0, y: 0,
+                dir: 'right', mouthOpen: false, mouthTimer: 0,
+                angle: 0, scale: 1
+            },
+
+            init: function() {
+                this.loadProgress();
+                this.score = 0;
+                this.lives = TEACHER_SETTINGS.STARTING_LIVES;
+                this.level = 1;
+                document.getElementById('menu-screen').classList.add('hidden');
+                this.setupLevel();
+            },
+
+            loadProgress: function() {
+                const s = localStorage.getItem(STORAGE_KEY_SCORE);
+                const l = localStorage.getItem(STORAGE_KEY_LEVEL);
+                this.highScore = s ? parseInt(s) : 0;
+                document.getElementById('high-score-el').innerText = this.highScore;
+                
+                // Show badges based on max level reached previously
+                const maxLvl = l ? parseInt(l) : 1;
+                const badgeContainer = document.getElementById('badges-el');
+                badgeContainer.innerHTML = '';
+                if(maxLvl >= 5) badgeContainer.innerHTML += '<div class="badge" title="Level 5 Reached">🥉</div>';
+                if(maxLvl >= 10) badgeContainer.innerHTML += '<div class="badge" title="Level 10 Reached">🥈</div>';
+                if(maxLvl >= 15) badgeContainer.innerHTML += '<div class="badge" title="Level 15 Reached">🥇</div>';
+            },
+
+            saveProgress: function() {
+                if(this.score > this.highScore) {
+                    this.highScore = this.score;
+                    localStorage.setItem(STORAGE_KEY_SCORE, this.highScore);
+                }
+                const currentMax = localStorage.getItem(STORAGE_KEY_LEVEL) || 1;
+                if(this.level > currentMax) {
+                    localStorage.setItem(STORAGE_KEY_LEVEL, this.level);
+                }
+            },
+
+            resetProgress: function() {
+                if(confirm("Are you sure you want to reset your High Score and Badges?")) {
+                    localStorage.removeItem(STORAGE_KEY_SCORE);
+                    localStorage.removeItem(STORAGE_KEY_LEVEL);
+                    location.reload();
+                }
+            },
+
+            setupLevel: function() {
+                this.state = 'playing';
+                this.player.gx = 0;
+                this.player.gy = 0;
+                this.player.angle = 0;
+                this.player.scale = 1;
+                
+                this.hints = TEACHER_SETTINGS.STARTING_HINTS;
+                this.enemies = [];
+                this.particles = [];
+                
+                // --- DETERMINE LEVEL RULES ---
+                // Level 1-3: Equivalent Fractions
+                // Level 4-6: Compare (> or <)
+                // Level 7+: Harder comparisons/Equivalents mixed
+                
+                const maxDenom = this.level < 4 ? TEACHER_SETTINGS.MAX_DENOM_EASY : TEACHER_SETTINGS.MAX_DENOM_HARD;
+                
+                // Pick a nice base target (1/2, 1/3, 2/3, 3/4 etc)
+                const simpleBases = [{n:1,d:2}, {n:1,d:3}, {n:2,d:3}, {n:1,d:4}, {n:3,d:4}, {n:1,d:5}];
+                let base = simpleBases[Math.floor(Math.random() * simpleBases.length)];
+                
+                // If higher level, maybe pick a weirder target
+                if(this.level > 5 && Math.random() > 0.5) {
+                    base = MathUtils.randomFraction(8);
+                }
+                
+                this.targetFraction = base;
+
+                // Determine Mode
+                if (this.level <= 3) this.mode = 'equal';
+                else if (this.level <= 6) this.mode = Math.random() > 0.5 ? 'greater' : 'lesser';
+                else {
+                    const r = Math.random();
+                    if(r < 0.33) this.mode = 'equal';
+                    else if(r < 0.66) this.mode = 'greater';
+                    else this.mode = 'lesser';
+                }
+
+                this.generateGrid(maxDenom);
+                this.updateHUD();
+                this.showLevelScreen();
+            },
+
+            showLevelScreen: function() {
+                const title = document.getElementById('level-title');
+                const targetDisplay = document.getElementById('level-target-display');
+                const ruleDesc = document.getElementById('level-rule-desc');
+                
+                title.innerText = `LEVEL ${this.level}`;
+                
+                // Render target nicely
+                targetDisplay.innerHTML = `${this.targetFraction.n}&frasl;${this.targetFraction.d}`;
+
+                if(this.mode === 'equal') {
+                    ruleDesc.innerText = "Find EQUIVALENT fractions";
+                    targetDisplay.style.color = '#0f0';
+                } else if (this.mode === 'greater') {
+                    ruleDesc.innerText = "Find fractions GREATER than...";
+                    targetDisplay.innerHTML = `&gt; ${this.targetFraction.n}&frasl;${this.targetFraction.d}`;
+                    targetDisplay.style.color = '#fa0';
+                } else {
+                    ruleDesc.innerText = "Find fractions LESS than...";
+                    targetDisplay.innerHTML = `&lt; ${this.targetFraction.n}&frasl;${this.targetFraction.d}`;
+                    targetDisplay.style.color = '#f0f';
+                }
+
+                document.getElementById('level-screen').classList.remove('hidden');
+            },
+
+            startLevel: function() {
+                document.getElementById('level-screen').classList.add('hidden');
+                
+                // Setup Player Pos
+                this.player.x = this.player.gx * CELL_W + (CELL_W/2);
+                this.player.y = this.player.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
+                
+                requestAnimationFrame(gameLoop);
+                setTimeout(() => this.spawnEnemy(), 2000); 
+            },
+
+            generateGrid: function(maxDenom) {
+                this.grid = [];
+                let validCount = 0;
+                
+                for (let r = 0; r < GRID_ROWS; r++) {
+                    for (let c = 0; c < GRID_COLS; c++) {
+                        let f, isValid;
+                        const wantCorrect = Math.random() < 0.35; // 35% chance for correct answer
+
+                        // Generate a candidate
+                        // We use a safety counter to prevent infinite loops if logic is tight
+                        let safety = 0;
+                        do {
+                            if (wantCorrect) {
+                                // GENERATE CORRECT ANSWER
+                                if (this.mode === 'equal') {
+                                    const mult = Math.floor(Math.random() * 5) + 1;
+                                    f = { n: this.targetFraction.n * mult, d: this.targetFraction.d * mult };
+                                } else if (this.mode === 'greater') {
+                                    // Generate until greater
+                                    f = MathUtils.randomFraction(maxDenom);
+                                    if (!MathUtils.isGreater(f, this.targetFraction)) f = null; 
+                                } else { // lesser
+                                    f = MathUtils.randomFraction(maxDenom);
+                                    if (!MathUtils.isLesser(f, this.targetFraction)) f = null;
+                                }
+                            } else {
+                                // GENERATE WRONG ANSWER
+                                f = MathUtils.randomFraction(maxDenom);
+                                
+                                // Verify it is actually wrong - FIX: ADDED NULL CHECK HERE
+                                if (f) {
+                                    if (this.mode === 'equal' && MathUtils.areEqual(f, this.targetFraction)) f = null;
+                                    else if (this.mode === 'greater' && MathUtils.isGreater(f, this.targetFraction)) f = null;
+                                    else if (this.mode === 'lesser' && MathUtils.isLesser(f, this.targetFraction)) f = null;
+                                }
+                                
+                                // Avoid exact duplicates of target in comparison modes to prevent confusion - FIX: ADDED NULL CHECK HERE
+                                if (f && MathUtils.areEqual(f, this.targetFraction)) f = null;
+                            }
+                            safety++;
+                        } while (!f && safety < 50);
+
+                        // Fallback if random gen failed
+                        if (!f) f = { n:1, d:1 }; 
+
+                        // Determine validity based on final fraction
+                        if (this.mode === 'equal') isValid = MathUtils.areEqual(f, this.targetFraction);
+                        else if (this.mode === 'greater') isValid = MathUtils.isGreater(f, this.targetFraction);
+                        else isValid = MathUtils.isLesser(f, this.targetFraction);
+
+                        if(isValid) validCount++;
+
+                        this.grid.push({
+                            c: c, r: r,
+                            val: f,
+                            isValid: isValid,
+                            eaten: false,
+                            color: '#0f0',
+                            highlightTimer: 0
+                        });
+                    }
+                }
+                
+                // Ensure minimum correct answers exist
+                if(validCount < TEACHER_SETTINGS.MIN_CORRECT_ANSWERS) this.generateGrid(maxDenom);
+            },
+
+            spawnEnemy: function() {
+                if(this.state !== 'playing') return;
+
+                // Difficulty Scaling
+                let maxEnemies = 1;
+                let moveInterval = TEACHER_SETTINGS.ENEMY_SPEED_EASY;
+
+                if (this.level >= 4) {
+                    maxEnemies = 2;
+                    moveInterval = TEACHER_SETTINGS.ENEMY_SPEED_MED;
+                }
+                if (this.level >= 7) {
+                    maxEnemies = 3;
+                    moveInterval = TEACHER_SETTINGS.ENEMY_SPEED_HARD;
+                }
+                
+                if(this.enemies.length < maxEnemies) {
+                    // Spawn at edges
+                    let gx, gy;
+                    if(Math.random() > 0.5) {
+                        gx = Math.random() > 0.5 ? -1 : GRID_COLS;
+                        gy = Math.floor(Math.random() * GRID_ROWS);
+                    } else {
+                        gx = Math.floor(Math.random() * GRID_COLS);
+                        gy = Math.random() > 0.5 ? -1 : GRID_ROWS;
+                    }
+
+                    // 0 = Wanderer (Red), 1 = Hunter (Purple)
+                    let type = 0; 
+                    if(this.level >= 4 && Math.random() > 0.4) type = 1;
+
+                    this.enemies.push({
+                        gx: gx, gy: gy,
+                        x: gx * CELL_W + (CELL_W/2),
+                        y: gy * CELL_H + (CELL_H/2) + TOP_OFFSET,
+                        type: type,
+                        moveTimer: 0,
+                        moveInterval: moveInterval
+                    });
+                }
+
+                let nextTime = 2000 + Math.random() * 4000;
+                setTimeout(() => this.spawnEnemy(), nextTime);
+            },
+
+            updateHUD: function() {
+                document.getElementById('score-el').innerText = `SCORE: ${this.score}`;
+                document.getElementById('level-display').innerText = `LEVEL ${this.level}`;
+                
+                let ruleText = "";
+                const tf = `${this.targetFraction.n}/${this.targetFraction.d}`;
+                if (this.mode === 'equal') ruleText = `Equal to ${tf}`;
+                else if (this.mode === 'greater') ruleText = `Greater than ${tf}`;
+                else ruleText = `Less than ${tf}`;
+                
+                document.getElementById('rule-el').innerText = ruleText;
+                
+                // Lives
+                const livesContainer = document.getElementById('lives-el');
+                livesContainer.innerHTML = '';
+                for(let i=0; i<this.lives; i++) {
+                    const d = document.createElement('div');
+                    d.className = 'life-icon';
+                    livesContainer.appendChild(d);
+                }
+
+                // Hints
+                const hintsContainer = document.getElementById('hints-el');
+                hintsContainer.innerHTML = '';
+                for(let i=0; i<this.hints; i++) {
+                    const d = document.createElement('div');
+                    d.className = 'hint-icon';
+                    hintsContainer.appendChild(d);
+                }
+            },
+            
+            triggerDeath: function() {
+                if (this.state === 'dying') return;
+                this.state = 'dying';
+                this.deathTimer = 60;
+                spawnParticles(this.player.x, this.player.y, '#f00', 30);
+            },
+
+            resolveDeath: function() {
+                this.lives--;
+                this.updateHUD();
+
+                if (this.lives <= 0) {
+                    this.state = 'gameover';
+                    this.saveProgress();
+                    document.getElementById('final-score').innerText = this.score;
+                    if(this.score >= this.highScore && this.score > 0) {
+                        document.getElementById('new-record-msg').style.display = 'block';
+                    } else {
+                        document.getElementById('new-record-msg').style.display = 'none';
+                    }
+                    document.getElementById('game-over-screen').classList.remove('hidden');
+                } else {
+                    // Respawn
+                    this.state = 'playing';
+                    this.player.gx = 0;
+                    this.player.gy = 0;
+                    this.player.angle = 0;
+                    this.player.scale = 1;
+                    this.player.x = this.player.gx * CELL_W + (CELL_W/2);
+                    this.player.y = this.player.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
+                    this.enemies = []; 
+                }
+            },
+            
+            checkWin: function() {
+                const remaining = this.grid.filter(c => !c.eaten && c.isValid);
+                if (remaining.length === 0) {
+                    this.level++;
+                    this.score += TEACHER_SETTINGS.POINTS_LEVEL_CLEAR;
+                    this.saveProgress();
+                    setTimeout(() => {
+                        this.setupLevel();
+                    }, 500);
+                }
+            },
+
+            hint: function() {
+                if(this.state !== 'playing' || this.hints <= 0) return;
+
+                const targets = this.grid.filter(c => c.isValid && !c.eaten);
+                if (targets.length > 0) {
+                    this.hints--; 
+                    this.updateHUD();
+                    
+                    // Highlight random target
+                    const t = targets[Math.floor(Math.random() * targets.length)];
+                    t.highlightTimer = 120; // 2 seconds highlight
+                }
+            }
+        };
+
+        // --- INPUT ---
+        window.addEventListener('keydown', e => {
+            if (Game.state !== 'playing') return;
+            const p = Game.player;
+            
+            // Prevent scrolling with arrows
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].indexOf(e.code) > -1) {
+                e.preventDefault();
+            }
+
+            switch(e.key) {
+                case 'ArrowUp': 
+                    if (p.gy > 0) p.gy--; break;
+                case 'ArrowDown': 
+                    if (p.gy < GRID_ROWS - 1) p.gy++; break;
+                case 'ArrowLeft': 
+                    if (p.gx > 0) { p.gx--; p.dir = 'left'; } break;
+                case 'ArrowRight': 
+                    if (p.gx < GRID_COLS - 1) { p.gx++; p.dir = 'right'; } break;
+                case ' ':
+                    munch(); break;
+                case 'h':
+                case 'H':
+                    Game.hint(); break;
+            }
+        });
+
+        function munch() {
+            const p = Game.player;
+            const idx = p.gy * GRID_COLS + p.gx;
+            const cell = Game.grid[idx];
+
+            p.mouthOpen = true;
+            p.mouthTimer = 10; 
+
+            if (!cell.eaten) {
+                if (cell.isValid) {
+                    cell.eaten = true;
+                    Game.score += TEACHER_SETTINGS.POINTS_CORRECT;
+                    Game.updateHUD();
+                    spawnParticles(p.x, p.y, '#0f0', 15);
+                    Game.checkWin();
+                } else {
+                    Game.triggerDeath();
+                }
+            }
+        }
+
+        function spawnParticles(x, y, color, count) {
+            for(let i=0; i<count; i++) {
+                Game.particles.push({
+                    x: x, y: y,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
+                    life: 30 + Math.random() * 20,
+                    color: color
+                });
+            }
+        }
+
+        // --- RENDER LOOP ---
+        function gameLoop() {
+            if (Game.state === 'gameover') return;
+
+            // Clear
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            
+            // Draw Grid Lines
+            ctx.strokeStyle = '#004400';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for(let x=0; x<=GRID_COLS; x++) {
+                ctx.moveTo(x*CELL_W, TOP_OFFSET); ctx.lineTo(x*CELL_W, CANVAS_HEIGHT);
+            }
+            for(let y=0; y<=GRID_ROWS; y++) {
+                const Y = y*CELL_H + TOP_OFFSET;
+                ctx.moveTo(0, Y); ctx.lineTo(CANVAS_WIDTH, Y);
+            }
+            ctx.stroke();
+
+            // Draw Fractions
+            Game.grid.forEach(cell => {
+                if (!cell.eaten) {
+                    const cx = cell.c * CELL_W + (CELL_W/2);
+                    const cy = cell.r * CELL_H + (CELL_H/2) + TOP_OFFSET;
+                    
+                    if (cell.highlightTimer > 0) {
+                        ctx.save();
+                        ctx.fillStyle = '#0ff';
+                        ctx.globalAlpha = 0.3; 
+                        ctx.fillRect(cell.c * CELL_W, cell.r * CELL_H + TOP_OFFSET, CELL_W, CELL_H);
+                        ctx.restore();
+                        cell.highlightTimer--;
+                        ctx.fillStyle = '#0ff'; // Highlight text color
+                    } else {
+                        ctx.fillStyle = cell.color;
+                    }
+
+                    // DRAW STACKED FRACTION
+                    drawFraction(ctx, cx, cy, cell.val.n, cell.val.d, cell.highlightTimer > 0 ? '#fff' : '#0f0');
+                }
+            });
+
+            if (Game.state === 'playing') updatePlayingState();
+            else if (Game.state === 'dying') updateDyingState();
+
+            // Enemies
+            Game.enemies.forEach(en => {
+                const ex = en.gx * CELL_W + (CELL_W/2);
+                const ey = en.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
+                
+                if (Game.state === 'playing') {
+                    en.x += (ex - en.x) * 0.1;
+                    en.y += (ey - en.y) * 0.1;
+                }
+                drawTroggle(ctx, en.x, en.y, en.type);
+            });
+
+            // Particles
+            for(let i=Game.particles.length-1; i>=0; i--) {
+                const pt = Game.particles[i];
+                pt.x += pt.vx;
+                pt.y += pt.vy;
+                pt.life--;
+                ctx.fillStyle = pt.color;
+                ctx.fillRect(pt.x, pt.y, 4, 4);
+                if(pt.life <= 0) Game.particles.splice(i, 1);
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function drawFraction(ctx, x, y, n, d, color) {
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.font = 'bold 24px Courier New';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Numerator
+            ctx.fillText(n, x, y - 14);
+            // Denominator
+            ctx.fillText(d, x, y + 14);
+            // Bar
+            ctx.beginPath();
+            ctx.moveTo(x - 15, y);
+            ctx.lineTo(x + 15, y);
+            ctx.stroke();
+        }
+
+        function updatePlayingState() {
+            const p = Game.player;
+            const targetX = p.gx * CELL_W + (CELL_W/2);
+            const targetY = p.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
+            
+            p.x += (targetX - p.x) * 0.25;
+            p.y += (targetY - p.y) * 0.25;
+
+            if (p.mouthTimer > 0) p.mouthTimer--;
+            else p.mouthOpen = false;
+
+            drawMuncher(ctx, p.x, p.y, p.dir, p.mouthOpen, 0, 1);
+
+            // Enemy AI
+            Game.enemies.forEach(en => {
+                en.moveTimer++;
+                if (en.moveTimer > en.moveInterval) {
+                    en.moveTimer = 0;
+                    
+                    let possibleMoves = [];
+                    // Check bounds
+                    if (en.gx > 0) possibleMoves.push({x:-1, y:0});
+                    if (en.gx < GRID_COLS-1) possibleMoves.push({x:1, y:0});
+                    if (en.gy > 0) possibleMoves.push({x:0, y:-1});
+                    if (en.gy < GRID_ROWS-1) possibleMoves.push({x:0, y:1});
+                    
+                    let chosen = null;
+
+                    if (en.type === 1) { // Hunter (Seeks Player)
+                        let minDist = 999;
+                        possibleMoves.forEach(m => {
+                            let dist = Math.abs((en.gx + m.x) - p.gx) + Math.abs((en.gy + m.y) - p.gy);
+                            if (dist < minDist) { minDist = dist; chosen = m; }
+                        });
+                        // 20% chance to be dumb so it's not impossible
+                        if(Math.random() < 0.2 && possibleMoves.length > 0) chosen = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+                    } else { // Wanderer (Random)
+                        if(possibleMoves.length > 0) chosen = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+                    }
+
+                    if(chosen) { en.gx += chosen.x; en.gy += chosen.y; }
+                }
+                
+                // Collision
+                if (en.gx === p.gx && en.gy === p.gy) {
+                    Game.triggerDeath();
+                }
+            });
+        }
+
+        function updateDyingState() {
+            Game.deathTimer--;
+            const p = Game.player;
+            p.angle += 0.5; 
+            p.scale -= 0.02;
+            if(p.scale < 0) p.scale = 0;
+
+            drawMuncher(ctx, p.x, p.y, p.dir, true, p.angle, p.scale);
+
+            if (Game.deathTimer <= 0) {
+                Game.resolveDeath();
+            }
+        }
+
+        // --- DRAWING CHARACTERS ---
+        function drawMuncher(ctx, x, y, dir, mouthOpen, angle, scale) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            ctx.scale(scale, scale);
+            if(dir === 'left') ctx.scale(-1, 1);
+            
+            // Body
+            ctx.fillStyle = '#0f0'; // Green
+            ctx.beginPath();
+            ctx.arc(0, 0, 22, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Mouth
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            if (mouthOpen) {
+                ctx.moveTo(0, 0);
+                ctx.lineTo(28, -14);
+                ctx.lineTo(28, 14);
+            } else {
+                ctx.moveTo(0, 0);
+                ctx.lineTo(25, 0);
+            }
+            ctx.fill();
+
+            // Eye
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(5, -10, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawTroggle(ctx, x, y, type) {
+            ctx.save();
+            ctx.translate(x, y);
+            const wobble = Math.sin(Date.now() / 150) * 3;
+            
+            // 0 = Red (Easy), 1 = Purple (Hard)
+            ctx.fillStyle = type === 0 ? '#ff3333' : '#b026ff'; 
+            
+            ctx.beginPath();
+            ctx.moveTo(-18, 18); // Bottom Left
+            ctx.lineTo(-18 + wobble, -10); // Top Left
+            ctx.bezierCurveTo(-10, -28, 10, -28, 18 + wobble, -10); // Head curve
+            ctx.lineTo(18, 18); // Bottom Right
+            
+            // Zigzag bottom
+            for(let i=18; i>=-18; i-=9) {
+                ctx.lineTo(i-4.5, 12);
+                ctx.lineTo(i-9, 18);
+            }
+            ctx.fill();
+
+            // Eyes
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(-7, -4, 5, 0, Math.PI*2);
+            ctx.arc(7, -4, 5, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(-7 + Math.sin(Date.now()/500), -4, 2, 0, Math.PI*2);
+            ctx.arc(7 + Math.sin(Date.now()/500), -4, 2, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+    </script>
+</body>
+</html>
