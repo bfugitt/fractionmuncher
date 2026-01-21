@@ -134,7 +134,8 @@
         .icon-row { display: flex; gap: 4px; align-items: center; }
         .life-icon { width: 18px; height: 18px; background: #0f0; border-radius: 50%; box-shadow: 0 0 5px #0f0; }
         .hint-icon { width: 18px; height: 18px; background: #fa0; border-radius: 2px; box-shadow: 0 0 5px #fa0; transform: rotate(45deg); }
-        
+        .status-text { font-size: 14px; color: #888; margin-right: 5px; }
+
         .badge-area { margin-top: 20px; display: flex; gap: 10px; }
         .badge { font-size: 24px; filter: drop-shadow(0 0 5px gold); }
 
@@ -156,8 +157,14 @@
                     <span id="rule-el">LOADING...</span>
                 </div>
                 <div class="status-container">
-                    <div class="icon-row" id="lives-el" title="Lives"></div>
-                    <div class="icon-row" id="hints-el" title="Hints (Diamond)"></div>
+                    <div class="icon-row">
+                        <span class="status-text" id="lives-text">LIVES:</span>
+                        <div class="icon-row" id="lives-el"></div>
+                    </div>
+                    <div class="icon-row">
+                        <span class="status-text">HINTS:</span>
+                        <div class="icon-row" id="hints-el"></div>
+                    </div>
                 </div>
             </div>
             <div class="hud-bar bottom-bar">
@@ -194,7 +201,7 @@
             <h1 style="color: #f44;">GAME OVER</h1>
             <p>Final Score: <span id="final-score" style="color: #fff; font-weight: bold;">0</span></p>
             <p id="new-record-msg" style="color: gold; display: none;">NEW HIGH SCORE!</p>
-            <button onclick="location.reload()">MAIN MENU</button>
+            <button onclick="Game.init()">PLAY AGAIN</button>
         </div>
     </div>
 
@@ -207,17 +214,17 @@
          */
         const TEACHER_SETTINGS = {
             // -- LIVES & HELP --
-            STARTING_LIVES: 5,
-            STARTING_HINTS: 5, 
+            STARTING_LIVES: 3,
+            STARTING_HINTS: 3, 
             
             // -- DIFFICULTY SPEED SETTINGS --
             // Speed is measured in "frames per move".
             // 60 frames = 1 second (approx).
             // Higher number = SLOWER monster. Lower number = FASTER monster.
             
-            ENEMY_SPEED_START: 400,      // Level 1 Speed (Very Slow to start)
-            ENEMY_SPEED_DECREMENT: 25,   // How many frames faster per level?
-            ENEMY_SPEED_MIN: 80,         // Maximum speed limit (Cap)
+            ENEMY_SPEED_START: 200,      // Level 1 Speed
+            ENEMY_SPEED_DECREMENT: 15,   // How many frames faster per level?
+            ENEMY_SPEED_MIN: 60,         // Maximum speed limit (Cap)
             
             // How many fractions must be cleared to pass?
             MIN_CORRECT_ANSWERS: 5, 
@@ -297,6 +304,7 @@
             mode: 'equal', // 'equal', 'greater', 'lesser'
             
             state: 'menu', // menu, level_transition, playing, dying, gameover
+            deathReason: null, // 'munch' or 'enemy'
             
             grid: [],
             enemies: [],
@@ -316,6 +324,7 @@
                 this.lives = TEACHER_SETTINGS.STARTING_LIVES;
                 this.level = 1;
                 document.getElementById('menu-screen').classList.add('hidden');
+                document.getElementById('game-over-screen').classList.add('hidden'); 
                 
                 // Start the main loop if not already running
                 if (!this.loopId) {
@@ -436,9 +445,6 @@
                 
                 // Unfreeze game state
                 this.state = 'playing';
-                
-                // NOTE: We do NOT call requestAnimationFrame here anymore.
-                // The loop is persistent from init(). This prevents double-speed bugs.
                 
                 // Initial enemy spawn delay
                 this.spawnTimer = setTimeout(() => this.spawnEnemy(), 2000); 
@@ -564,13 +570,18 @@
                 
                 document.getElementById('rule-el').innerText = ruleText;
                 
+                // Lives
                 const livesContainer = document.getElementById('lives-el');
                 livesContainer.innerHTML = '';
-                for(let i=0; i<this.lives; i++) {
+                // Ensure no negative loop
+                const safeLives = Math.max(0, this.lives);
+                for(let i=0; i<safeLives; i++) {
                     const d = document.createElement('div');
                     d.className = 'life-icon';
                     livesContainer.appendChild(d);
                 }
+                // Text Counter
+                document.getElementById('lives-text').innerText = `LIVES (${safeLives}):`;
 
                 const hintsContainer = document.getElementById('hints-el');
                 hintsContainer.innerHTML = '';
@@ -581,17 +592,26 @@
                 }
             },
             
-            triggerDeath: function() {
-                if (this.state === 'dying') return;
+            triggerDeath: function(reason) {
+                if (this.state !== 'playing') return;
+                
+                // REMOVED THE GUARD THAT WAS CAUSING THE ZOMBIE BUG
+                // if (this.lives <= 0) return; 
+                
+                // IMMEDIATE PENALTY
+                this.lives--;
+                if (this.lives < 0) this.lives = 0; // Prevent negative numbers
+
+                this.updateHUD();
+
                 this.state = 'dying';
+                this.deathReason = reason || 'enemy'; // 'enemy' or 'munch'
                 this.deathTimer = 60;
                 spawnParticles(this.player.x, this.player.y, '#f00', 30);
             },
 
             resolveDeath: function() {
-                this.lives--;
-                this.updateHUD();
-
+                // Game Over check
                 if (this.lives <= 0) {
                     this.state = 'gameover';
                     this.saveProgress();
@@ -603,14 +623,24 @@
                     }
                     document.getElementById('game-over-screen').classList.remove('hidden');
                 } else {
+                    // RESPAWN LOGIC
                     this.state = 'playing';
+                    
+                    // Force reset to TOP-LEFT grid
                     this.player.gx = 0;
                     this.player.gy = 0;
                     this.player.angle = 0;
                     this.player.scale = 1;
-                    this.player.x = this.player.gx * CELL_W + (CELL_W/2);
-                    this.player.y = this.player.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
-                    this.enemies = []; 
+                    
+                    // Force PIXEL position immediately (ignore easing for one frame)
+                    this.player.x = (CELL_W / 2);
+                    this.player.y = (CELL_H / 2) + TOP_OFFSET;
+                    
+                    this.enemies = []; // Clear enemies
+                    
+                    // RESTART SPAWNER (Fix for missing enemies after death)
+                    if(this.spawnTimer) clearTimeout(this.spawnTimer);
+                    this.spawnTimer = setTimeout(() => this.spawnEnemy(), 2000);
                 }
             },
             
@@ -669,6 +699,9 @@
         });
 
         function munch() {
+            // Extra safety check
+            if (Game.state !== 'playing') return;
+
             const p = Game.player;
             const idx = p.gy * GRID_COLS + p.gx;
             const cell = Game.grid[idx];
@@ -684,7 +717,7 @@
                     spawnParticles(p.x, p.y, '#0f0', 15);
                     Game.checkWin();
                 } else {
-                    Game.triggerDeath();
+                    Game.triggerDeath('munch'); // Reason: munch
                 }
             }
         }
@@ -706,8 +739,8 @@
             Game.loopId = requestAnimationFrame(gameLoop);
             
             if (Game.state === 'gameover') {
-                // We keep looping to clear canvas or stay static, or we could return.
-                // But it's safer to just render blank or static.
+                // Failsafe: Ensure DOM is visible
+                document.getElementById('game-over-screen').classList.remove('hidden');
                 return;
             }
 
@@ -810,6 +843,13 @@
 
         function updatePlayingState() {
             const p = Game.player;
+            
+            // SAFETY CHECK: If playing with 0 lives, force death immediately
+            if (Game.lives <= 0) {
+                 Game.triggerDeath('zombie');
+                 return;
+            }
+
             const targetX = p.gx * CELL_W + (CELL_W/2);
             const targetY = p.gy * CELL_H + (CELL_H/2) + TOP_OFFSET;
             
@@ -853,7 +893,7 @@
                 
                 // Collision
                 if (en.gx === p.gx && en.gy === p.gy) {
-                    Game.triggerDeath();
+                    Game.triggerDeath('enemy');
                 }
             });
         }
@@ -866,6 +906,14 @@
             if(p.scale < 0) p.scale = 0;
 
             drawMuncher(ctx, p.x, p.y, p.dir, true, p.angle, p.scale);
+
+            // NEW: Show WHY you died
+            if (Game.deathReason === 'munch') {
+                ctx.fillStyle = '#f00';
+                ctx.font = 'bold 20px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText("WRONG!", p.x, p.y - 40);
+            }
 
             if (Game.deathTimer <= 0) {
                 Game.resolveDeath();
